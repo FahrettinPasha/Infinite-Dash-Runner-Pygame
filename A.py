@@ -463,7 +463,7 @@ while running:
                         else:
                             particle = FlameSpark(center_x, center_y, angle, speed, spark_color, life=30, size=random.randint(5, 8))
 
-                        all_vfx.add(particle)
+                        all_vfx.add(particle)# burası hatalı
                     # =============================================================
                     sound_feedback_timer = 30
 
