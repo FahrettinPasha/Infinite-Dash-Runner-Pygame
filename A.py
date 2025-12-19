@@ -437,7 +437,8 @@ while running:
                     AMBIENT_CHANNEL.unpause()
 
             if GAME_STATE == 'PLAYING':
-
+                center_x = player_x + player_size // 2
+                center_y = player_y + player_size // 2
                 # --- DOUBLE JUMP (W key) ---
                 if event.key == pygame.K_w and jumps_left > 0 and not is_dashing and not is_slamming:
                     jumps_left -= 1
@@ -446,26 +447,41 @@ while running:
                     if JUMP_SOUND:
                         FX_CHANNEL.play(JUMP_SOUND)
 
-                    # === ABARTILI JUMP/DOUBLE JUMP EFEKTİ ===
-                    spark_color = PLAYER_NORMAL if jumps_left > 0 else PLAYER_DASH
-
+                    # Değişkenleri burada tanımlıyoruz ki aşağıdaki tüm efektler kullansın
                     center_x = player_x + player_size // 2
                     center_y = player_y + player_size // 2
 
-                    for _ in range(25):
+                    # === ABARTILI JUMP EFEKTİ ===
+                    spark_color = PLAYER_NORMAL if jumps_left > 0 else PLAYER_DASH
+
+                    for _ in range(20):
                         angle = random.uniform(0.6 * math.pi, 1.4 * math.pi)
-                        speed = random.uniform(8, 15)
+                        speed = random.uniform(6, 14)
+                        particle = FlameSpark(
+                            center_x, center_y,
+                            angle, speed,
+                            spark_color,
+                            life=35,
+                            size=random.randint(6, 9))
+                        all_vfx.add(particle)
 
-                        if random.random() < 0.4:
-                            end_x = center_x + math.cos(angle) * 30
-                            end_y = center_y + math.sin(angle) * 30
-                            vfx = LightningBolt(center_x, center_y, end_x, end_y, WHITE, life=15, displace=18)
-                        else:
-                            particle = FlameSpark(center_x, center_y, angle, speed, spark_color, life=30, size=random.randint(5, 8))
+                    # LIGHTNING = BONUS (Hatanın olduğu kısım artık çalışacak)
+                    for _ in range(8):
+                        angle = random.uniform(0.6 * math.pi, 1.4 * math.pi)
+                        length = random.uniform(50, 90)
+                        # center_x ve center_y yukarıda tanımlandığı için hata vermeyecek
+                        end_x = center_x + math.cos(angle) * length
+                        end_y = center_y + math.sin(angle) * length
+                        bolt = LightningBolt(
+                                center_x, center_y,
+                                end_x, end_y,
+                                WHITE,
+                                life=18,
+                                displace=22)
+                        all_vfx.add(bolt)
 
-                        all_vfx.add(particle)# burası hatalı
                     # =============================================================
-                    sound_feedback_timer = 30
+                sound_feedback_timer = 30
 
                 # --- SLAM (S key while jumping) ---
                 if event.key == pygame.K_s and is_jumping and not is_dashing and not is_slamming:
