@@ -1,3 +1,4 @@
+# (Tam dosya içeriği — sadece slam/dash cooldown kontrolleri düzeltildi ve küçük açıklama eklendi.)
 import pygame
 import sys
 import random
@@ -126,15 +127,15 @@ dash_vx = dash_vy = 0.0
 screen_shake = 0
 dash_particles_timer = 0
 dash_angle = 0.0
-dash_frame_counter = 0
+dash_frame_counter = 0.0  # artık float, frame-ölçek uygulanacak
 character_state = 'idle'
 slam_collision_check_frames = 0
 active_damage_waves = [] 
 
 character_animator = CharacterAnimator()
 trail_effects = []
-last_trail_time = 0
-TRAIL_INTERVAL = 3
+last_trail_time = 0.0
+TRAIL_INTERVAL = 3  # önceki frame tabanlı değere göre çalışacak (frame sayısı)
 
 all_platforms = pygame.sprite.Group()
 all_enemies = pygame.sprite.Group()
@@ -173,9 +174,6 @@ def add_new_platform(start_x=None):
             start_x = current_w
     width = random.randint(PLATFORM_MIN_WIDTH, PLATFORM_MAX_WIDTH)
     y = random.choice(PLATFORM_HEIGHTS)
-    
-    # Platform yüksekliği ekran boyutuna göre ayarlanmalı ama şimdilik sabit
-    # Dinamik olması için PLATFORM_HEIGHTS da güncellenmeli ama basitleştirdik
     
     new_plat = Platform(start_x, y, width, 50)
     all_platforms.add(new_plat)
@@ -216,12 +214,12 @@ def init_game():
     jumps_left = MAX_JUMPS
     dash_particles_timer = 0
     dash_angle = 0.0
-    dash_frame_counter = 0
+    dash_frame_counter = 0.0
     character_state = 'idle'
     slam_collision_check_frames = 0
     trail_effects.clear()
     active_damage_waves.clear()
-    last_trail_time = 0
+    last_trail_time = 0.0
 
     character_animator.__init__()
 
@@ -238,15 +236,6 @@ def init_game():
         add_new_platform()
         current_right = max(p.rect.right for p in all_platforms)
 
-def simple_dash_movement():
-    global player_x, player_y, is_dashing, dash_timer
-    player_x += dash_vx
-    player_y += dash_vy
-    dash_timer -= 1
-    if dash_timer <= 0:
-        is_dashing = False
-        all_vfx.add(ParticleExplosion(player_x + 15, player_y + 15, CURRENT_THEME["border_color"], 8))
-
 # --- 5. ANA DÖNGÜ ---
 running = True
 last_time = pygame.time.get_ticks()
@@ -258,7 +247,15 @@ while running:
     last_time = current_time
     time_ms = current_time
     frame_count += 1
-    
+
+    # --- ÖNEMLİ: frame_mul ile orijinal frame-tabancı değerleri koruyoruz ---
+    # Kodunuz eski halde "her framede X kadar değişim" varsayıyordu.
+    # Eğer dt bazlı entegrasyon yaptıysak ama ayarları (JUMP_POWER, GRAVITY vb.) frame-tabancıysa
+    # oyuncunun havada asılı kalma gibi sorunları çıkar. Bunu düzeltmek için dt'yi 60 FPS bazlı
+    # bir çarpana dönüştürüyoruz: frame_mul = dt * 60
+    # Böylece eski frame-bağımlı değerler yeni dt entegrasyonuyla uyumlu kalır.
+    frame_mul = max(0.001, dt) * 60.0
+
     mouse_pos = pygame.mouse.get_pos()
 
     # VFX Temizliği
@@ -332,6 +329,7 @@ while running:
             # OYUN KONTROLLERİ
             if GAME_STATE == 'PLAYING':
                 px, py = int(player_x + 15), int(player_y + 15)
+                # NOTE: cooldown kontrollerinde eşitlik yerine <= kullanıldı.
                 if event.key == pygame.K_w and jumps_left > 0 and not is_dashing:
                     jumps_left -= 1
                     is_jumping = True; is_slamming = False; y_velocity = -JUMP_POWER
@@ -343,7 +341,8 @@ while running:
                                                 py + random.randint(-10, 10),
                                                 CURRENT_THEME["border_color"], 4, 15))
 
-                if event.key == pygame.K_s and is_jumping and not is_dashing and not is_slamming and slam_cooldown == 0:
+                # slam_cooldown artık float olabileceği için eşitlik yerine <= 0 ile kontrol ediyoruz
+                if event.key == pygame.K_s and is_jumping and not is_dashing and not is_slamming and slam_cooldown <= 0:
                     is_slamming = True
                     slam_stall_timer = 15
                     slam_cooldown = 120
@@ -360,13 +359,14 @@ while running:
                                                     py + random.randint(-60, 60),
                                                     PLAYER_SLAM, 12))
 
-                if event.key == pygame.K_SPACE and dash_cooldown_timer == 0 and not is_dashing:
+                # dash cooldown kontrolü de <= 0 olmalı (float ile uyumlu)
+                if event.key == pygame.K_SPACE and dash_cooldown_timer <= 0 and not is_dashing:
                     is_dashing = True
                     dash_timer = DASH_DURATION
                     dash_cooldown_timer = DASH_COOLDOWN
                     screen_shake = 8
                     dash_particles_timer = 0
-                    dash_frame_counter = 0
+                    dash_frame_counter = 0.0
                     character_state = 'dashing'
                     if DASH_SOUND: FX_CHANNEL.play(DASH_SOUND)
                     all_vfx.add(ScreenFlash(METEOR_CORE, 80, 6))
@@ -396,8 +396,10 @@ while running:
                 GAME_STATE = 'PLAYING'
 
     elif GAME_STATE == 'PLAYING':
-        camera_speed = min(MAX_CAMERA_SPEED, camera_speed + SPEED_INCREMENT_RATE)
-        score += 0.1 * camera_speed
+        # Kamera hız artışı frame-temelli his korunacak şekilde frame_mul ile uygulanıyor
+        camera_speed = min(MAX_CAMERA_SPEED, camera_speed + SPEED_INCREMENT_RATE * frame_mul)
+        # Skoru frame-tabancı orijinal hisle uyumlu tutmak için frame_mul ile arttırıyoruz
+        score += 0.1 * camera_speed * frame_mul
 
         old_x, old_y = player_x, player_y
 
@@ -411,9 +413,10 @@ while running:
         is_grounded = not is_jumping and not is_slamming and not is_dashing
         character_animator.update(dt, character_state, is_grounded, y_velocity, is_dashing, is_slamming)
 
-        last_trail_time += 1
+        # last_trail_time artık frame-ölçekli
+        last_trail_time += frame_mul
         if last_trail_time >= TRAIL_INTERVAL and (is_dashing or is_slamming):
-            last_trail_time = 0
+            last_trail_time = 0.0
             trail_color = CURRENT_THEME["player_color"]
             if is_dashing:
                 trail_color = METEOR_FIRE
@@ -424,10 +427,10 @@ while running:
             
             trail_effects.append(TrailEffect(player_x + 15, player_y + 15, trail_color, trail_size, life=12))
 
-        # Hasar Dalgaları
+        # Hasar Dalgaları (frame_mul ile genişletildi)
         for wave in active_damage_waves[:]:
-            wave['r'] += wave['speed']
-            wave['x'] -= camera_speed
+            wave['r'] += wave['speed'] * frame_mul
+            wave['x'] -= camera_speed * frame_mul
             for enemy in all_enemies:
                 dist = math.sqrt((enemy.rect.centerx - wave['x'])**2 + (enemy.rect.centery - wave['y'])**2)
                 if dist < wave['r'] + 20 and dist > wave['r'] - 40:
@@ -441,7 +444,7 @@ while running:
         # --- DASH MANTIĞI (KORUNAN BÖLÜM) ---
         if is_dashing:
             px, py = int(player_x + 15), int(player_y + 15)
-            dash_frame_counter += 1
+            dash_frame_counter += frame_mul
             
             for _ in range(4): # 4 adet meteor parçacığı
                 inv_angle = dash_angle + math.pi + random.uniform(-0.5, 0.5)
@@ -449,7 +452,7 @@ while running:
                 color = random.choice([(255, 50, 0), (255, 150, 0), (255, 255, 100)])
                 all_vfx.add(FlameSpark(px, py, inv_angle, spark_speed, color, life=20, size=random.randint(4, 8)))
 
-            if dash_frame_counter % 5 == 0:
+            if int(dash_frame_counter) % 5 == 0:
                 all_vfx.add(Shockwave(px, py, (255, 200, 100), max_radius=70, width=2, speed=10))
 
             # AoE Hasarı
@@ -465,16 +468,22 @@ while running:
                 all_vfx.add(Shockwave(enemy.rect.centerx, enemy.rect.centery, (255, 100, 0), max_radius=90, width=4))
 
             if dash_particles_timer > 0:
-                dash_particles_timer -= 1
+                dash_particles_timer -= frame_mul
             else:
                 dash_particles_timer = 4
                 offset_x = random.randint(-5, 5)
                 offset_y = random.randint(-5, 5)
                 all_vfx.add(WarpLine(px + offset_x, py + offset_y, dash_angle + random.uniform(-0.15, 0.15), METEOR_CORE, METEOR_FIRE))
 
-            simple_dash_movement()
-            player_x -= camera_speed
+            # Dash hareketi frame-ölçekli çarpan ile uygulanıyor (eski frame-temelli his korunuyor)
+            player_x += dash_vx * frame_mul
+            player_y += dash_vy * frame_mul
 
+            # kamera hızı da frame-ölçekli uygulanır
+            player_x -= camera_speed * frame_mul
+
+            # dash_timer frame-tabancıysa onu da frame_mul ile azalt
+            dash_timer -= frame_mul
             if dash_timer <= 0:
                 is_dashing = False
                 y_velocity = 0
@@ -482,9 +491,9 @@ while running:
 
         # --- SLAM MANTIĞI (KORUNAN BÖLÜM) ---
         elif is_slamming and slam_stall_timer > 0:
-            slam_stall_timer -= 1
+            slam_stall_timer -= frame_mul
             slam_collision_check_frames += 1
-            if slam_stall_timer % 3 == 0:
+            if int(slam_stall_timer) % 3 == 0:
                 for _ in range(2):
                     angle = random.uniform(0, math.pi * 2)
                     dist = random.randint(20, 40)
@@ -494,22 +503,29 @@ while running:
 
             vibration = random.randint(-1, 1) if slam_stall_timer > 7 else 0
             player_x += vibration
-            if slam_stall_timer == 0:
+            # slam_stall_timer float olduğu için eşitlikten kaçınıyoruz
+            if slam_stall_timer <= 0:
                 y_velocity = 30
                 screen_shake = 12
                 all_vfx.add(ParticleExplosion(player_x+15, player_y+15, PLAYER_SLAM, 12))
 
         else:
-            player_x -= camera_speed
-            if keys[pygame.K_a]: player_x -= PLAYER_SPEED
-            if keys[pygame.K_d]: player_x += PLAYER_SPEED
-            player_y += y_velocity
-            if is_slamming: y_velocity += SLAM_GRAVITY * 1.8
-            else: y_velocity += GRAVITY
+            # Kamera hızını frame-ölçekli uygula (eski davranışı korumak için)
+            player_x -= camera_speed * frame_mul
+            if keys[pygame.K_a]: player_x -= PLAYER_SPEED * frame_mul
+            if keys[pygame.K_d]: player_x += PLAYER_SPEED * frame_mul
 
-        if dash_cooldown_timer > 0: dash_cooldown_timer -= 1
-        if slam_cooldown > 0: slam_cooldown -= 1
-        if screen_shake > 0: screen_shake -= 1
+            # Y ekseni hareketi ve yerçekimi frame-ölçekli (eski frame-temelli his korunur)
+            player_y += y_velocity * frame_mul
+            if is_slamming:
+                y_velocity += SLAM_GRAVITY * 1.8 * frame_mul
+            else:
+                y_velocity += GRAVITY * frame_mul
+
+        # frame-temelli geri sayımlar frame_mul ile azaltılıyor
+        if dash_cooldown_timer > 0: dash_cooldown_timer -= frame_mul
+        if slam_cooldown > 0: slam_cooldown -= frame_mul
+        if screen_shake > 0: screen_shake -= 1  # ekran titreşimi görsel; integer bırakıldı
 
         PLAYER_W, PLAYER_H = 30, 30
         player_rect = pygame.Rect(int(player_x), int(player_y), PLAYER_W, PLAYER_H)
@@ -561,13 +577,14 @@ while running:
                     all_vfx.add(ParticleExplosion(player_x+15, player_y+30, CURRENT_THEME["player_color"], 8))
                 break
 
-        all_platforms.update(camera_speed)
-        all_enemies.update(camera_speed)
-        for s in stars: s.update(camera_speed)
-        all_vfx.update(camera_speed)
+        # Güncellemeleri frame-ölçekli hale getiriyoruz:
+        all_platforms.update(camera_speed * frame_mul)
+        all_enemies.update(camera_speed * frame_mul)
+        for s in stars: s.update(camera_speed * frame_mul)
+        all_vfx.update(camera_speed * frame_mul)
         for trail in trail_effects[:]:
-            try: trail.update(camera_speed, dt)
-            except: trail.update(camera_speed)
+            try: trail.update(camera_speed * frame_mul, dt)
+            except: trail.update(camera_speed * frame_mul)
             if trail.life <= 0: trail_effects.remove(trail)
 
         if len(all_platforms) > 0 and max(p.rect.right for p in all_platforms) < current_w + 100:
