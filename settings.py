@@ -18,6 +18,11 @@ PLAYER_COOLDOWN = (50, 50, 50)
 PLAYER_SLAM = (255, 0, 0)
 PAUSE_OVERLAY_COLOR = (10, 10, 10, 180)
 
+# --- YENİ DÜŞMAN RENKLERİ ---
+CURSED_PURPLE = (120, 0, 120)  # Lanetli Mor
+CURSED_RED = (200, 0, 0)       # Göz Rengi
+GLITCH_BLACK = (20, 0, 20)     # Karartı
+
 # Oyun Fiziği
 GRAVITY = 1
 SLAM_GRAVITY = 5
