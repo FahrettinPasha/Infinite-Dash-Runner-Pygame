@@ -649,7 +649,7 @@ while running:
         screen.blit(ui_surface, (0,0))
 
     pygame.display.flip()
-    clock.tick(current_fps) # Dinamik FPS kullanımı
+    clock.tick(current_fps) # Dinamik FPS kullanımı felan
 
 pygame.quit()
 sys.exit()
