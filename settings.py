@@ -1,9 +1,19 @@
 import pygame
 
-# Ekran Ayarları
+# Ekran Ayarları (Varsayılan Başlangıç)
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 FPS = 60
+
+# --- YENİ EKLENEN AYAR SEÇENEKLERİ ---
+AVAILABLE_RESOLUTIONS = [
+    (3840, 2160), # 4K
+    (1920, 1080), # FHD
+    (1280, 720),  # HD
+    (854, 480)    # 480p
+]
+
+FPS_LIMITS = [30, 60, 120, 144, 240]
 
 # Renkler
 DARK_BLUE = (10, 10, 50)
@@ -17,6 +27,15 @@ PLAYER_DASH = (255, 200, 0)
 PLAYER_COOLDOWN = (50, 50, 50)
 PLAYER_SLAM = (255, 0, 0)
 PAUSE_OVERLAY_COLOR = (10, 10, 10, 180)
+
+# --- UI COLORS ---
+UI_BG_COLOR = (5, 5, 10, 230)
+UI_BORDER_COLOR = (0, 255, 255)
+BUTTON_COLOR = (0, 20, 40)
+BUTTON_HOVER_COLOR = (0, 100, 150)
+BUTTON_TEXT_COLOR = (200, 255, 255)
+LOADING_BAR_BG = (20, 20, 20)
+LOADING_BAR_FILL = (0, 255, 128)
 
 # --- YENİ DÜŞMAN RENKLERİ ---
 CURSED_PURPLE = (120, 0, 120)  # Lanetli Mor

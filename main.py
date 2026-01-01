@@ -1,8 +1,8 @@
-# main.py
 import pygame
 import sys
 import random
 import math
+import os
 from settings import *
 from utils import generate_sound_effect, generate_ambient_fallback, load_sound_asset, draw_text, draw_animated_player
 from vfx import LightningBolt, FlameSpark, GhostTrail, SpeedLine, Shockwave, EnergyOrb, ParticleExplosion, ScreenFlash
@@ -14,15 +14,20 @@ from animations import CharacterAnimator, TrailEffect
 pygame.init()
 pygame.mixer.pre_init(44100, -16, 2, 512)
 
-# VSYNC açıldı
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT),
+# Global Display Başlangıç
+current_w, current_h = SCREEN_WIDTH, SCREEN_HEIGHT
+screen = pygame.display.set_mode((current_w, current_h),
                                 pygame.SCALED | pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.HWSURFACE, vsync=1)
-pygame.display.set_caption("Infinite Runner - METEOR DASH UPDATE")
+pygame.display.set_caption("Infinite Runner - METEOR DASH + PRO MENU")
 clock = pygame.time.Clock()
 
-# --- KALICI YÜZEYLER ---
-vfx_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-ui_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+# --- KALICI YÜZEYLER (Yeniden boyutlandırılabilir olmalı) ---
+def create_surfaces(w, h):
+    v = pygame.Surface((w, h), pygame.SRCALPHA)
+    u = pygame.Surface((w, h), pygame.SRCALPHA)
+    return v, u
+
+vfx_surface, ui_surface = create_surfaces(current_w, current_h)
 
 # --- 2. SES AYARLARI ---
 FX_VOLUME = 0.7
@@ -34,20 +39,13 @@ DASH_SOUND = load_sound_asset("assets/sfx/dash.wav", lambda: generate_sound_effe
 SLAM_SOUND = load_sound_asset("assets/sfx/slam.wav", lambda: generate_sound_effect(100, 150, 0.7), FX_VOLUME * 1.5)
 EXPLOSION_SOUND = load_sound_asset("assets/sfx/explosion.wav", lambda: generate_sound_effect(50, 300, 0.5), FX_VOLUME * 1.2)
 GAME_MUSIC = load_sound_asset("assets/music/game_action_music.ogg", generate_ambient_fallback, 1.0)
-MENU_MUSIC = load_sound_asset("assets/music/menu_theme.ogg", generate_ambient_fallback, 1.2)
 
-# --- OYUN AYARLARI ---
-DASH_SPEED = 45 # Biraz daha hızlandırdım meteor hissi için
-DASH_DURATION = 20         
-DASH_INVINCIBILITY = True
-MAX_VFX_COUNT = 200 # Meteor efekti çok partikül kullanır, limiti artırdım
+# --- OYUN İÇİ SABİTLER (EKSİK OLANLAR EKLENDİ) ---
+MAX_VFX_COUNT = 200
 MAX_DASH_VFX_PER_FRAME = 5
+METEOR_CORE = (255, 255, 200)
+METEOR_FIRE = (255, 80, 0)
 
-# --- METEOR RENKLERİ ---
-METEOR_CORE = (255, 255, 200) # Parlak beyaz/sarı
-METEOR_FIRE = (255, 80, 0)    # Turuncu alev
-
-# --- BASİT VFX SINIFI ---
 class WarpLine(pygame.sprite.Sprite):
     def __init__(self, x, y, angle, color, theme_color=None):
         super().__init__()
@@ -80,13 +78,43 @@ class WarpLine(pygame.sprite.Sprite):
                             (int(self.x), int(self.y)), (int(end_x), int(end_y)), self.width)
 
 # --- 3. DURUM DEĞİŞKENLERİ ---
+GAME_STATE = 'MENU' 
+
+# Menu ve Performans Ayarları
+# Varsayılan değerler settings.py'deki indexlere göre
+game_settings = {
+    'fullscreen': True,
+    'quality': 'HIGH',
+    'res_index': 1, # Varsayılan: 1920x1080 (Listede 2. sırada)
+    'fps_limit': 60,
+    'fps_index': 1  # Varsayılan: 60 FPS
+}
+current_fps = 60
+active_ui_elements = {}
+
+# Loading Screen
+loading_progress = 0.0
+loading_logs = []
+loading_timer = 0
+loading_stage = 0
+fake_log_messages = [
+    "Initializing Core Systems...",
+    "Scanning Hardware Configuration...",
+    "Allocating VRAM for Meteor VFX...",
+    "Pre-caching Particle Assets...",
+    "Compiling Shader Modules...",
+    "Synchronizing Audio Engine...",
+    "Calibrating Physics...",
+    "SYSTEM READY."
+]
+
+# Oyun Değişkenleri
 CURRENT_THEME = THEMES[0]
 CURRENT_SHAPE = 'circle'
-GAME_STATE = 'START'
 score = 0.0
 high_score = 0
 camera_speed = INITIAL_CAMERA_SPEED
-player_x, player_y = 150.0, float(SCREEN_HEIGHT - 300)
+player_x, player_y = 150.0, float(current_h - 300)
 y_velocity = 0.0
 is_jumping = is_dashing = is_slamming = False
 slam_stall_timer = 0
@@ -101,19 +129,40 @@ dash_angle = 0.0
 dash_frame_counter = 0
 character_state = 'idle'
 slam_collision_check_frames = 0
+active_damage_waves = [] 
 
 character_animator = CharacterAnimator()
 trail_effects = []
 last_trail_time = 0
 TRAIL_INTERVAL = 3
-active_damage_waves = [] 
 
 all_platforms = pygame.sprite.Group()
 all_enemies = pygame.sprite.Group()
 all_vfx = pygame.sprite.Group()
 stars = [Star() for _ in range(120)]
 
-# --- 4. YARDIMCI FONKSIYONLAR ---
+# --- YARDIMCI FONKSİYONLAR ---
+def apply_display_settings():
+    """Çözünürlük ve ekran modunu uygular"""
+    global screen, vfx_surface, ui_surface, current_w, current_h
+    
+    res = AVAILABLE_RESOLUTIONS[game_settings['res_index']]
+    current_w, current_h = res
+    
+    flags = pygame.DOUBLEBUF | pygame.HWSURFACE
+    if game_settings['fullscreen']:
+        flags |= pygame.FULLSCREEN | pygame.SCALED
+    
+    # Ekranı yeniden oluştur
+    screen = pygame.display.set_mode((current_w, current_h), flags, vsync=1)
+    
+    # Yardımcı yüzeyleri de yeni boyuta göre güncelle
+    vfx_surface, ui_surface = create_surfaces(current_w, current_h)
+    
+    # Yıldızları yeni ekrana göre dağıt
+    global stars
+    stars = [Star() for _ in range(120)]
+
 def add_new_platform(start_x=None):
     if start_x is None:
         if len(all_platforms) > 0:
@@ -121,17 +170,36 @@ def add_new_platform(start_x=None):
             gap = random.randint(GAP_MIN, GAP_MAX)
             start_x = rightmost.rect.right + gap
         else:
-            start_x = SCREEN_WIDTH
+            start_x = current_w
     width = random.randint(PLATFORM_MIN_WIDTH, PLATFORM_MAX_WIDTH)
     y = random.choice(PLATFORM_HEIGHTS)
+    
+    # Platform yüksekliği ekran boyutuna göre ayarlanmalı ama şimdilik sabit
+    # Dinamik olması için PLATFORM_HEIGHTS da güncellenmeli ama basitleştirdik
     
     new_plat = Platform(start_x, y, width, 50)
     all_platforms.add(new_plat)
     
-    # %40 ihtimalle düşman spawnla
     if width > 120 and random.random() < 0.4:
         enemy = CursedEnemy(new_plat)
         all_enemies.add(enemy)
+
+def start_loading_sequence():
+    global GAME_STATE, loading_progress, loading_logs, loading_timer, loading_stage
+    GAME_STATE = 'LOADING'
+    loading_progress = 0.0
+    loading_logs = []
+    loading_timer = 0
+    loading_stage = 0
+    
+    # Kalite ayarı kontrolü
+    global MAX_VFX_COUNT, MAX_DASH_VFX_PER_FRAME
+    if game_settings['quality'] == 'LOW':
+        MAX_VFX_COUNT = 50
+        MAX_DASH_VFX_PER_FRAME = 2
+    else:
+        MAX_VFX_COUNT = 200
+        MAX_DASH_VFX_PER_FRAME = 5
 
 def init_game():
     global player_x, player_y, y_velocity, score, camera_speed, jumps_left
@@ -142,7 +210,7 @@ def init_game():
     if GAME_MUSIC:
         AMBIENT_CHANNEL.play(GAME_MUSIC, loops=-1)
     camera_speed = INITIAL_CAMERA_SPEED
-    player_x, player_y = 150.0, float(SCREEN_HEIGHT - 300)
+    player_x, player_y = 150.0, float(current_h - 300)
     y_velocity = score = dash_timer = dash_cooldown_timer = screen_shake = slam_stall_timer = slam_cooldown = 0
     is_jumping = is_dashing = is_slamming = False
     jumps_left = MAX_JUMPS
@@ -163,10 +231,10 @@ def init_game():
     all_enemies.empty()
     all_vfx.empty()
     
-    start_plat = Platform(0, SCREEN_HEIGHT - 50, 400, 50)
+    start_plat = Platform(0, current_h - 50, 400, 50)
     all_platforms.add(start_plat)
     current_right = 400
-    while current_right < SCREEN_WIDTH + 200:
+    while current_right < current_w + 200:
         add_new_platform()
         current_right = max(p.rect.right for p in all_platforms)
 
@@ -190,21 +258,65 @@ while running:
     last_time = current_time
     time_ms = current_time
     frame_count += 1
+    
+    mouse_pos = pygame.mouse.get_pos()
 
-    # PERFORMANS: Temizlik
+    # VFX Temizliği
     if frame_count % 30 == 0:
         if len(all_vfx) > MAX_VFX_COUNT:
              sprites = list(all_vfx.sprites())
              for sprite in sprites[:20]:
                  sprite.kill()
 
-    # event handling
+    # --- EVENT HANDLING ---
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+            
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            # UI Tıklama Kontrolleri
+            if GAME_STATE == 'MENU':
+                if 'start' in active_ui_elements and active_ui_elements['start'].collidepoint(mouse_pos):
+                    start_loading_sequence()
+                elif 'settings' in active_ui_elements and active_ui_elements['settings'].collidepoint(mouse_pos):
+                    GAME_STATE = 'SETTINGS'
+                elif 'exit' in active_ui_elements and active_ui_elements['exit'].collidepoint(mouse_pos):
+                    running = False
+            
+            elif GAME_STATE == 'SETTINGS':
+                # 1. Fullscreen Toggle (Sadece değişkeni değiştirir, Apply ile uygulanır)
+                if 'toggle_fullscreen' in active_ui_elements and active_ui_elements['toggle_fullscreen'].collidepoint(mouse_pos):
+                    game_settings['fullscreen'] = not game_settings['fullscreen']
+                
+                # 2. Kalite Toggle (Anında etki eder)
+                elif 'toggle_quality' in active_ui_elements and active_ui_elements['toggle_quality'].collidepoint(mouse_pos):
+                    game_settings['quality'] = 'LOW' if game_settings['quality'] == 'HIGH' else 'HIGH'
+                
+                # 3. Çözünürlük Değiştirme (Döngüsel)
+                elif 'change_resolution' in active_ui_elements and active_ui_elements['change_resolution'].collidepoint(mouse_pos):
+                    game_settings['res_index'] = (game_settings['res_index'] + 1) % len(AVAILABLE_RESOLUTIONS)
+                
+                # 4. FPS Değiştirme (Anında etki eder)
+                elif 'change_fps' in active_ui_elements and active_ui_elements['change_fps'].collidepoint(mouse_pos):
+                    game_settings['fps_index'] = (game_settings['fps_index'] + 1) % len(FPS_LIMITS)
+                    game_settings['fps_limit'] = FPS_LIMITS[game_settings['fps_index']]
+                    current_fps = game_settings['fps_limit']
+                
+                # 5. Ayarları Uygula Butonu
+                elif 'apply_changes' in active_ui_elements and active_ui_elements['apply_changes'].collidepoint(mouse_pos):
+                    apply_display_settings()
+                
+                # 6. Geri Dön
+                elif 'back' in active_ui_elements and active_ui_elements['back'].collidepoint(mouse_pos):
+                    GAME_STATE = 'MENU'
+
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
-                running = False
+                if GAME_STATE == 'PLAYING':
+                    GAME_STATE = 'MENU' 
+                    AMBIENT_CHANNEL.stop()
+                elif GAME_STATE in ['MENU', 'SETTINGS']:
+                    running = False
 
             if event.key == pygame.K_p:
                 if GAME_STATE == 'PLAYING':
@@ -214,11 +326,10 @@ while running:
                     GAME_STATE = 'PLAYING'
                     AMBIENT_CHANNEL.unpause()
 
-            if GAME_STATE == 'START' and event.key == pygame.K_RETURN:
-                init_game(); GAME_STATE = 'PLAYING'
-            elif GAME_STATE == 'GAME_OVER' and event.key == pygame.K_r:
+            if GAME_STATE == 'GAME_OVER' and event.key == pygame.K_r:
                 init_game(); GAME_STATE = 'PLAYING'
 
+            # OYUN KONTROLLERİ
             if GAME_STATE == 'PLAYING':
                 px, py = int(player_x + 15), int(player_y + 15)
                 if event.key == pygame.K_w and jumps_left > 0 and not is_dashing:
@@ -258,7 +369,6 @@ while running:
                     dash_frame_counter = 0
                     character_state = 'dashing'
                     if DASH_SOUND: FX_CHANNEL.play(DASH_SOUND)
-                    # Dash başlangıç patlaması
                     all_vfx.add(ScreenFlash(METEOR_CORE, 80, 6))
                     all_vfx.add(Shockwave(px, py, METEOR_FIRE, max_radius=120, rings=2, speed=15))
                     
@@ -270,8 +380,22 @@ while running:
                     is_jumping = True; y_velocity = 0
                     dash_angle = math.atan2(dash_vy, dash_vx)
 
-    # --- OYUN DURUM GÜNCELLEMELERİ ---
-    if GAME_STATE == 'PLAYING':
+    # --- OYUN LOJİĞİ & GÜNCELLEMELER ---
+    if GAME_STATE == 'LOADING':
+        # Yükleme Simülasyonu
+        loading_timer += 1
+        if loading_timer % random.randint(20, 45) == 0 and loading_stage < len(fake_log_messages):
+            loading_logs.append(fake_log_messages[loading_stage])
+            loading_stage += 1
+            loading_progress = min(0.95, loading_stage / len(fake_log_messages))
+            
+        if loading_stage >= len(fake_log_messages):
+            loading_progress += 0.01 
+            if loading_progress >= 1.0:
+                init_game()
+                GAME_STATE = 'PLAYING'
+
+    elif GAME_STATE == 'PLAYING':
         camera_speed = min(MAX_CAMERA_SPEED, camera_speed + SPEED_INCREMENT_RATE)
         score += 0.1 * camera_speed
 
@@ -285,7 +409,6 @@ while running:
             character_state = 'idle'
 
         is_grounded = not is_jumping and not is_slamming and not is_dashing
-
         character_animator.update(dt, character_state, is_grounded, y_velocity, is_dashing, is_slamming)
 
         last_trail_time += 1
@@ -293,18 +416,18 @@ while running:
             last_trail_time = 0
             trail_color = CURRENT_THEME["player_color"]
             if is_dashing:
-                trail_color = METEOR_FIRE # Kuyruk rengi alev rengi
+                trail_color = METEOR_FIRE
                 trail_size = random.randint(8, 14)
             elif is_slamming:
                 trail_color = PLAYER_SLAM
                 trail_size = random.randint(8, 12)
+            
             trail_effects.append(TrailEffect(player_x + 15, player_y + 15, trail_color, trail_size, life=12))
 
-        # --- HASAR VEREN ŞOK DALGALARI GÜNCELLEME ---
+        # Hasar Dalgaları
         for wave in active_damage_waves[:]:
             wave['r'] += wave['speed']
             wave['x'] -= camera_speed
-            
             for enemy in all_enemies:
                 dist = math.sqrt((enemy.rect.centerx - wave['x'])**2 + (enemy.rect.centery - wave['y'])**2)
                 if dist < wave['r'] + 20 and dist > wave['r'] - 40:
@@ -312,60 +435,42 @@ while running:
                     score += 500
                     all_vfx.add(ParticleExplosion(enemy.rect.centerx, enemy.rect.centery, CURSED_PURPLE, 20))
                     all_vfx.add(ScreenFlash(CURSED_PURPLE, 30, 2))
-            
             if wave['r'] > wave['max_r']:
                 active_damage_waves.remove(wave)
 
+        # --- DASH MANTIĞI (KORUNAN BÖLÜM) ---
         if is_dashing:
             px, py = int(player_x + 15), int(player_y + 15)
             dash_frame_counter += 1
             
-            # --- METEOR EFEKTLERİ ---
-            # 1. Kuyruk Ateşi (Yoğun partikül)
-            # Hızın ters yönüne doğru ateş saçıyoruz
-            for _ in range(4): # Partikül yoğunluğu
+            for _ in range(4): # 4 adet meteor parçacığı
                 inv_angle = dash_angle + math.pi + random.uniform(-0.5, 0.5)
                 spark_speed = random.uniform(5, 15)
-                # Kırmızıdan sarıya renkler
                 color = random.choice([(255, 50, 0), (255, 150, 0), (255, 255, 100)])
                 all_vfx.add(FlameSpark(px, py, inv_angle, spark_speed, color, life=20, size=random.randint(4, 8)))
 
-            # 2. Şok Halkaları (Ses duvarı etkisi)
             if dash_frame_counter % 5 == 0:
                 all_vfx.add(Shockwave(px, py, (255, 200, 100), max_radius=70, width=2, speed=10))
 
-            # 3. METEOR ALAN HASARI (AoE)
-            # Oyuncu etrafındaki bir çemberin içindeki her şeyi yakar
-            meteor_hit_radius = 120 # Geniş bir alan
-            enemy_hits_aoe = []
-            for enemy in all_enemies:
-                dist = math.sqrt((enemy.rect.centerx - px)**2 + (enemy.rect.centery - py)**2)
-                if dist < meteor_hit_radius:
-                    enemy_hits_aoe.append(enemy)
+            # AoE Hasarı
+            meteor_hit_radius = 120
+            enemy_hits_aoe = [e for e in all_enemies if math.sqrt((e.rect.centerx - px)**2 + (e.rect.centery - py)**2) < meteor_hit_radius]
             
             for enemy in enemy_hits_aoe:
                 enemy.kill()
                 score += 500
                 screen_shake = 10
                 if EXPLOSION_SOUND: FX_CHANNEL.play(EXPLOSION_SOUND)
-                # Yanarak yok olma efekti
                 all_vfx.add(ParticleExplosion(enemy.rect.centerx, enemy.rect.centery, METEOR_FIRE, 25))
                 all_vfx.add(Shockwave(enemy.rect.centerx, enemy.rect.centery, (255, 100, 0), max_radius=90, width=4))
 
-            # Eski dash efektleri (Çizgiler vb.)
-            dash_vfx_added = 0
             if dash_particles_timer > 0:
                 dash_particles_timer -= 1
             else:
-                dash_particles_timer = 4 # Daha sık
-                if dash_vfx_added < MAX_DASH_VFX_PER_FRAME:
-                    offset_x = random.randint(-5, 5)
-                    offset_y = random.randint(-5, 5)
-                    all_vfx.add(WarpLine(px + offset_x, py + offset_y,
-                                         dash_angle + random.uniform(-0.15, 0.15),
-                                         METEOR_CORE, # Beyaz çizgiler
-                                         METEOR_FIRE)) # Turuncu hale
-                    dash_vfx_added += 1
+                dash_particles_timer = 4
+                offset_x = random.randint(-5, 5)
+                offset_y = random.randint(-5, 5)
+                all_vfx.add(WarpLine(px + offset_x, py + offset_y, dash_angle + random.uniform(-0.15, 0.15), METEOR_CORE, METEOR_FIRE))
 
             simple_dash_movement()
             player_x -= camera_speed
@@ -375,50 +480,32 @@ while running:
                 y_velocity = 0
                 character_state = 'idle'
 
+        # --- SLAM MANTIĞI (KORUNAN BÖLÜM) ---
         elif is_slamming and slam_stall_timer > 0:
             slam_stall_timer -= 1
             slam_collision_check_frames += 1
-
             if slam_stall_timer % 3 == 0:
                 for _ in range(2):
                     angle = random.uniform(0, math.pi * 2)
                     dist = random.randint(20, 40)
                     ex = player_x + 15 + math.cos(angle) * dist
                     ey = player_y + 15 + math.sin(angle) * dist
-                    spark = FlameSpark(ex, ey, angle + math.pi, dist/10, PLAYER_SLAM, life=15, size=random.randint(4, 6))
-                    all_vfx.add(spark)
+                    all_vfx.add(FlameSpark(ex, ey, angle + math.pi, dist/10, PLAYER_SLAM, life=15))
 
             vibration = random.randint(-1, 1) if slam_stall_timer > 7 else 0
             player_x += vibration
-
-            if slam_stall_timer == 7:
-                all_vfx.add(ParticleExplosion(player_x+15, player_y+15, PLAYER_SLAM, 15))
-                for _ in range(2):
-                    ring = Shockwave(player_x+15, player_y+15, (255, 180, 80))
-                    ring.radius = 20
-                    ring.max_radius = 120
-                    all_vfx.add(ring)
-
             if slam_stall_timer == 0:
                 y_velocity = 30
                 screen_shake = 12
                 all_vfx.add(ParticleExplosion(player_x+15, player_y+15, PLAYER_SLAM, 12))
-                for _ in range(6):
-                    angle = random.uniform(-math.pi/3, math.pi/3) + math.pi
-                    speed = random.uniform(8, 18)
-                    spark = FlameSpark(player_x+15, player_y+15, angle, speed, PLAYER_SLAM, life=15, size=random.randint(3, 5))
-                    all_vfx.add(spark)
+
         else:
             player_x -= camera_speed
-            if keys[pygame.K_a]:
-                player_x -= PLAYER_SPEED
-            if keys[pygame.K_d]:
-                player_x += PLAYER_SPEED
+            if keys[pygame.K_a]: player_x -= PLAYER_SPEED
+            if keys[pygame.K_d]: player_x += PLAYER_SPEED
             player_y += y_velocity
-            if is_slamming:
-                y_velocity += SLAM_GRAVITY * 1.8
-            else:
-                y_velocity += GRAVITY
+            if is_slamming: y_velocity += SLAM_GRAVITY * 1.8
+            else: y_velocity += GRAVITY
 
         if dash_cooldown_timer > 0: dash_cooldown_timer -= 1
         if slam_cooldown > 0: slam_cooldown -= 1
@@ -427,12 +514,11 @@ while running:
         PLAYER_W, PLAYER_H = 30, 30
         player_rect = pygame.Rect(int(player_x), int(player_y), PLAYER_W, PLAYER_H)
         
-        # --- DÜŞMAN ÇARPIŞMALARI (NORMAL) ---
+        # Çarpışmalar
         dummy_player = type('',(object,),{'rect':player_rect})()
         enemy_hits = pygame.sprite.spritecollide(dummy_player, all_enemies, False)
         
         for enemy in enemy_hits:
-            # Dash veya Slam yapıyorsak düşmanı öldürürüz (Meteor AoE yukarıda halledildi, bu direkt çarpışma için yedek)
             if is_dashing or is_slamming:
                 enemy.kill()
                 score += 500
@@ -440,7 +526,6 @@ while running:
                 if EXPLOSION_SOUND: FX_CHANNEL.play(EXPLOSION_SOUND)
                 all_vfx.add(ParticleExplosion(enemy.rect.centerx, enemy.rect.centery, CURSED_PURPLE, 20))
                 all_vfx.add(Shockwave(enemy.rect.centerx, enemy.rect.centery, GLITCH_BLACK, max_radius=80, width=5))
-                all_vfx.add(ScreenFlash(CURSED_PURPLE, 50, 4))
                 pygame.time.delay(30) 
             else:
                 GAME_STATE = 'GAME_OVER'
@@ -448,18 +533,8 @@ while running:
                 AMBIENT_CHANNEL.stop()
                 all_vfx.add(ParticleExplosion(player_x, player_y, CURSED_RED, 30))
         
-        # --- GELİŞMİŞ PLATFORM ÇARPIŞMASI ---
-        move_rect = pygame.Rect(
-            int(player_x), 
-            int(min(old_y, player_y)), 
-            PLAYER_W, 
-            int(abs(player_y - old_y)) + PLAYER_H
-        )
-        
-        collided_platforms = pygame.sprite.spritecollide(
-            type('',(object,),{'rect':move_rect})(), 
-            all_platforms, False
-        )
+        move_rect = pygame.Rect(int(player_x), int(min(old_y, player_y)), PLAYER_W, int(abs(player_y - old_y)) + PLAYER_H)
+        collided_platforms = pygame.sprite.spritecollide(type('',(object,),{'rect':move_rect})(), all_platforms, False)
         
         for p in collided_platforms:
             platform_top = p.rect.top
@@ -468,21 +543,11 @@ while running:
                 if is_slamming:
                     y_velocity = -15
                     screen_shake = 30
-                    
-                    active_damage_waves.append({
-                        'x': player_x + 15,
-                        'y': platform_top,
-                        'r': 10,
-                        'max_r': 250,
-                        'speed': 25
-                    })
-
+                    active_damage_waves.append({'x': player_x + 15, 'y': platform_top, 'r': 10, 'max_r': 250, 'speed': 25})
                     for i in range(2):
                         wave = Shockwave(player_x+15, p.rect.top, (255, 180, 80), speed=25)
-                        wave.radius = 30 + i*30
-                        wave.max_radius = 200 + i*60
+                        wave.radius = 30 + i*30; wave.max_radius = 200 + i*60
                         all_vfx.add(wave)
-                    all_vfx.add(ScreenFlash(PLAYER_SLAM, 100, 10))
                     all_vfx.add(ParticleExplosion(player_x+15, p.rect.top, PLAYER_SLAM, 25))
                     is_slamming = False
                     is_jumping = True
@@ -490,8 +555,7 @@ while running:
                     character_state = 'jumping'
                 else:
                     y_velocity = 0
-                    is_jumping = False
-                    is_slamming = False
+                    is_jumping = is_slamming = False
                     jumps_left = MAX_JUMPS
                     character_state = 'idle'
                     all_vfx.add(ParticleExplosion(player_x+15, player_y+30, CURRENT_THEME["player_color"], 8))
@@ -499,140 +563,76 @@ while running:
 
         all_platforms.update(camera_speed)
         all_enemies.update(camera_speed)
-        for s in stars:
-            s.update(camera_speed)
+        for s in stars: s.update(camera_speed)
         all_vfx.update(camera_speed)
-
         for trail in trail_effects[:]:
-            try:
-                trail.update(camera_speed, dt)
-            except TypeError:
-                trail.update(camera_speed)
-            if trail.life <= 0:
-                trail_effects.remove(trail)
+            try: trail.update(camera_speed, dt)
+            except: trail.update(camera_speed)
+            if trail.life <= 0: trail_effects.remove(trail)
 
-        if len(all_platforms) > 0 and max(p.rect.right for p in all_platforms) < SCREEN_WIDTH + 100:
+        if len(all_platforms) > 0 and max(p.rect.right for p in all_platforms) < current_w + 100:
             add_new_platform()
-
-        if player_x < -50 or player_y > SCREEN_HEIGHT + 100:
+        if player_x < -50 or player_y > current_h + 100:
             GAME_STATE = 'GAME_OVER'
             high_score = max(high_score, int(score))
             AMBIENT_CHANNEL.stop()
 
     # --- ÇİZİM ---
-    anim_params = character_animator.get_draw_params()
-    anim_offset = anim_params.get('screen_shake_offset', (0,0))
-    global_offset = (random.randint(-screen_shake, screen_shake), random.randint(-screen_shake, screen_shake)) if screen_shake > 0 else (0,0)
-    render_offset = (global_offset[0] + int(anim_offset[0]), global_offset[1] + int(anim_offset[1]))
-
-    # 1. Arka Plan
-    screen.fill(CURRENT_THEME["bg_color"])
-    
-    # 2. Yıldızlar
-    for s in stars:
-        s.draw(screen)
-
-    # 3. VFX Katmanı Temizle
-    vfx_surface.fill((0, 0, 0, 0))
-
-    # 4. Platformlar
-    for p in all_platforms:
-        p.draw(screen, CURRENT_THEME)
+    if GAME_STATE in ['MENU', 'SETTINGS', 'LOADING']:
+        screen.fill(DARK_BLUE)
+        for s in stars:
+            s.draw(screen)
+            s.update(0.5)
         
-    # 5. Düşmanlar
-    for e in all_enemies:
-        e.draw(screen)
+        ui_data = {
+            'settings': game_settings, 
+            'progress': loading_progress,
+            'logs': loading_logs,
+            'time_ms': time_ms
+        }
+        active_ui_elements = render_ui(ui_surface, GAME_STATE, ui_data, mouse_pos)
+        screen.blit(ui_surface, (0,0))
+        
+    else:
+        # Oyun İçi Çizim
+        anim_params = character_animator.get_draw_params()
+        anim_offset = anim_params.get('screen_shake_offset', (0,0))
+        global_offset = (random.randint(-screen_shake, screen_shake), random.randint(-screen_shake, screen_shake)) if screen_shake > 0 else (0,0)
+        render_offset = (global_offset[0] + int(anim_offset[0]), global_offset[1] + int(anim_offset[1]))
 
-    # 6. VFX
-    for v in all_vfx:
-        if hasattr(v, 'draw'):
-            v.draw(vfx_surface)
+        screen.fill(CURRENT_THEME["bg_color"])
+        for s in stars: s.draw(screen)
+        vfx_surface.fill((0, 0, 0, 0))
+        
+        for p in all_platforms: p.draw(screen, CURRENT_THEME)
+        for e in all_enemies: e.draw(screen)
+        for v in all_vfx: v.draw(vfx_surface)
+        for trail in trail_effects: trail.draw(vfx_surface)
 
-    # 7. Trail
-    for trail in trail_effects:
-        trail.draw(vfx_surface)
+        if GAME_STATE in ('PLAYING', 'PAUSED', 'GAME_OVER') and GAME_STATE != 'GAME_OVER':
+            p_color = CURRENT_THEME["player_color"]
+            if is_dashing: p_color = METEOR_CORE
+            elif is_slamming: p_color = PLAYER_SLAM
+            modified_color = character_animator.get_modified_color(p_color)
+            
+            draw_animated_player(
+                screen, CURRENT_SHAPE,
+                int(player_x + 15) + render_offset[0], int(player_y + 15) + render_offset[1], 15,
+                modified_color, anim_params
+            )
 
-    # 8. Karakter
-    if GAME_STATE in ('PLAYING', 'START', 'PAUSED', 'GAME_OVER') and GAME_STATE != 'GAME_OVER':
-        p_color = CURRENT_THEME["player_color"]
-        # Meteor Dash rengi
-        if is_dashing: p_color = METEOR_CORE # Beyaz çekirdek
-        elif is_slamming: p_color = PLAYER_SLAM
-
-        modified_color = character_animator.get_modified_color(p_color)
-        extra = anim_params.get('extra_effects', {})
-        player_cx = int(player_x + 15)
-        player_cy = int(player_y + 15)
-
-        # Afterimages
-        for ai in extra.get('afterimages', []):
-            ax = player_cx + int(ai.get('x', 0))
-            ay = player_cy + int(ai.get('y', 0))
-            acol = ai.get('color', (180, 220, 255, 110))
-            alife = max(0.01, ai.get('life', 0.12))
-            a_scale = ai.get('scale', 1.0)
-            radius = max(2, int(8 * a_scale * max(0.2, alife)))
-            pygame.draw.circle(vfx_surface, acol, (ax, ay), radius)
-
-        # Electric particles
-        for ep in extra.get('electric_particles', []):
-            try:
-                ep.draw(vfx_surface, player_cx, player_cy)
-            except Exception:
-                pass
-
-        # Shockwaves
-        for sw in extra.get('shockwaves', []):
-            try:
-                sw.draw(vfx_surface, player_cx, player_cy)
-            except Exception:
-                pass
-
-        # Impact particles
-        for ip in extra.get('impact_particles', []):
-            ix = player_cx + int(ip.get('x', 0))
-            iy = player_cy + int(ip.get('y', 0))
-            size = max(1, int(ip.get('size', 3)))
-            color = ip.get('color', (255, 200, 120))
-            alpha = int(255 * max(0.0, min(1.0, ip.get('life', 1.0))))
-            pygame.draw.circle(vfx_surface, (*color, alpha), (ix, iy), size)
-
-        # Dash lines
-        for line in extra.get('dash_lines', []):
-            lx = player_cx + int(line.get('x', 0))
-            ly = player_cy + int(line.get('y', 0))
-            length = int(line.get('length', 120))
-            ang = line.get('angle', 0.0)
-            w = max(1, int(line.get('width', 1)))
-            col = line.get('color', (220, 255, 255, 200))
-            ex = lx + math.cos(ang) * length
-            ey = ly + math.sin(ang) * length
-            pygame.draw.line(vfx_surface, col, (lx, ly), (ex, ey), w)
-
-        draw_animated_player(
-            screen, CURRENT_SHAPE,
-            player_cx + render_offset[0], player_cy + render_offset[1], 15,
-            modified_color, anim_params
-        )
-
-    # 9. VFX Katmanını Ekrana Bas
-    screen.blit(vfx_surface, render_offset)
-
-    # 10. UI Katmanı
-    ui_surface.fill((0, 0, 0, 0))
-    ui_data = {
-        'theme': CURRENT_THEME,
-        'score': score,
-        'high_score': high_score,
-        'dash_cd': dash_cooldown_timer,
-        'slam_cd': slam_cooldown,
-        'time_ms': time_ms
-    }
-    render_ui(ui_surface, GAME_STATE, ui_data)
-    screen.blit(ui_surface, (0,0))
+        screen.blit(vfx_surface, render_offset)
+        
+        ui_surface.fill((0, 0, 0, 0))
+        ui_data = {
+            'theme': CURRENT_THEME, 'score': score, 'high_score': high_score,
+            'dash_cd': dash_cooldown_timer, 'slam_cd': slam_cooldown, 'time_ms': time_ms
+        }
+        render_ui(ui_surface, GAME_STATE, ui_data)
+        screen.blit(ui_surface, (0,0))
 
     pygame.display.flip()
-    clock.tick(FPS)
+    clock.tick(current_fps) # Dinamik FPS kullanımı
 
 pygame.quit()
 sys.exit()
