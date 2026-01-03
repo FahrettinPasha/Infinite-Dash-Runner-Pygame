@@ -18,7 +18,7 @@ def damp(current, target, smoothing, dt):
     factor = 1.0 - math.exp(-smoothing * dt)
     return current + (target - current) * factor
 
-# ---------- HAFİF VFX VERİ YAPILARI (OPTİMİZE EDİLDİ) ----------
+# ---------- HAFİF VFX VERİ YAPILARI ----------
 class ElectricParticle:
     def __init__(self, x, y, color):
         self.x = x
@@ -56,7 +56,6 @@ class ElectricParticle:
             for p in self.arc_points:
                 points.append((int(self.x + p['x'] + ox), int(self.y + p['y'] + oy)))
             
-            # Surface oluşturma KALDIRILDI. Doğrudan çizim:
             for i in range(3):
                 width = max(1, int(self.size * (1.0 - i * 0.35)))
                 col = (*self.color, int(alpha * (0.9 - i * 0.3)))
@@ -79,7 +78,6 @@ class ShockwaveLite:
         self.life -= dt * 0.9
         self.radius += self.speed * dt * 12.0
         self.thickness = max(1.0, self.thickness * (1.0 - 0.9 * dt))
-        # Particle spawn code remains same...
         if self.radius < self.max_radius * 0.85 and random.random() < 0.35:
             angle = random.uniform(0, math.pi * 2)
             dist = self.radius
@@ -105,7 +103,6 @@ class ShockwaveLite:
         alpha = int(200 * clamp(self.life, 0.0, 1.0))
         center = (int(self.x + ox), int(self.y + oy))
         
-        # Surface oluşturma KALDIRILDI. Doğrudan çizim:
         if alpha > 0:
              pygame.draw.circle(surface, (*self.color, alpha), center, int(self.radius), int(max(1, self.thickness)))
 
@@ -142,7 +139,7 @@ class ScreenShakeLite:
             return (math.cos(angle) * distance, math.sin(angle) * distance)
         return (0, 0)
 
-# ---------- CHARACTER ANIMATOR (Sınıf yapısı korundu) ----------
+# ---------- CHARACTER ANIMATOR ----------
 class CharacterAnimator:
     def __init__(self):
         # state
@@ -542,7 +539,7 @@ class CharacterAnimator:
         self.extra_effects['shockwaves'].append(ShockwaveLite(x, y, (255, 150, 100)))
         self.extra_effects['screen_shake'].shake(18.0, 0.28)
 
-# ---------- TRAIL EFFECT (OPTİMİZE EDİLDİ) ----------
+# ---------- TRAIL EFFECT ----------
 class TrailEffect:
     def __init__(self, x, y, color, size, life=12):
         self.x = x
@@ -587,17 +584,16 @@ class TrailEffect:
             return
         life_ratio = clamp(self.life / max(1, self.max_life), 0.0, 1.0)
         
-        # Surface oluşturma KALDIRILDI. Doğrudan çizim:
         center = (int(self.x), int(self.y))
         
-        # Glow (iç içe halkalar)
+        # Glow
         for i in range(3, 0, -1):
             glow_size = int(self.glow_size * (i / 3.0))
             glow_alpha = int(80 * life_ratio * (i / 3.0))
             if glow_size > 0:
                 pygame.draw.circle(surface, (*self.color, glow_alpha), center, glow_size)
         
-        # Ana daire
+        # Main body
         main_alpha = int(200 * life_ratio)
         pygame.draw.circle(surface, (*self.color, main_alpha), center, int(max(1, self.size)))
         

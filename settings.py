@@ -1,21 +1,30 @@
 import pygame
 
-# Ekran Ayarları (Varsayılan Başlangıç)
+# --- EKRAN AYARLARI ---
+# Oyunun mantıksal olarak çalıştığı sabit çözünürlük
+# Tüm koordinatlar (platform yerleri, karakter hızı vb.) buna göre hesaplanır.
+LOGICAL_WIDTH = 1920
+LOGICAL_HEIGHT = 1080
+
+# Başlangıç Pencere Boyutu
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 FPS = 60
 
-# --- YENİ EKLENEN AYAR SEÇENEKLERİ ---
+# --- RENDER ÇÖZÜNÜRLÜKLERİ (Görüntü Kalitesi Seçenekleri) ---
+# Menüde seçilen çözünürlük artık pencere boyutunu değil, 
+# "içerik kalitesini" değiştirecek.
 AVAILABLE_RESOLUTIONS = [
-    (3840, 2160), # 4K
-    (1920, 1080), # FHD
-    (1280, 720),  # HD
-    (854, 480)    # 480p
+    (3840, 2160), # 4K (Ultra Sharp)
+    (1920, 1080), # FHD (Native)
+    (1280, 720),  # HD (Soft)
+    (854, 480),   # 480p (Pixelated/Blurry)
+    (640, 360)    # 360p (Retro/Bad Signal)
 ]
 
 FPS_LIMITS = [30, 60, 120, 144, 240]
 
-# Renkler
+# --- RENKLER ---
 DARK_BLUE = (10, 10, 50)
 WHITE = (255, 255, 255)
 STAR_COLOR = (200, 200, 200)
@@ -37,24 +46,24 @@ BUTTON_TEXT_COLOR = (200, 255, 255)
 LOADING_BAR_BG = (20, 20, 20)
 LOADING_BAR_FILL = (0, 255, 128)
 
-# --- YENİ DÜŞMAN RENKLERİ ---
-CURSED_PURPLE = (120, 0, 120)  # Lanetli Mor
-CURSED_RED = (200, 0, 0)       # Göz Rengi
-GLITCH_BLACK = (20, 0, 20)     # Karartı
+# --- DÜŞMAN RENKLERİ ---
+CURSED_PURPLE = (120, 0, 120)
+CURSED_RED = (200, 0, 0)
+GLITCH_BLACK = (20, 0, 20)
 
-# Oyun Fiziği
+# --- OYUN FİZİĞİ ---
 GRAVITY = 1
 SLAM_GRAVITY = 5
 JUMP_POWER = 28
 PLAYER_SPEED = 10
 MAX_JUMPS = 2
 
-# Dash Ayarları
+# --- DASH AYARLARI ---
 DASH_SPEED = 60
 DASH_DURATION = 8
 DASH_COOLDOWN = 60
 
-# Kamera ve Dünya
+# --- KAMERA VE DÜNYA ---
 INITIAL_CAMERA_SPEED = 5
 MAX_CAMERA_SPEED = 15
 SPEED_INCREMENT_RATE = 0.001
@@ -65,45 +74,45 @@ GAP_MAX = 250
 VERTICAL_GAP = 180
 
 PLATFORM_HEIGHTS = [
-    SCREEN_HEIGHT - 50,
-    SCREEN_HEIGHT - 50 - VERTICAL_GAP,
-    SCREEN_HEIGHT - 50 - 2 * VERTICAL_GAP,
-    SCREEN_HEIGHT - 50 - 3 * VERTICAL_GAP]
+    LOGICAL_HEIGHT - 50,
+    LOGICAL_HEIGHT - 50 - VERTICAL_GAP,
+    LOGICAL_HEIGHT - 50 - 2 * VERTICAL_GAP,
+    LOGICAL_HEIGHT - 50 - 3 * VERTICAL_GAP]
+
 THEMES = [
     {
         "name": "NEON NIGHTS",
-        "bg_color": (10, 10, 50),        # Koyu Mavi Arkaplan
-        "platform_color": (0, 0, 0),     # Siyah Platform İçi
-        "border_color": (50, 255, 50),   # Neon Yeşil Çizgiler
-        "player_color": (0, 255, 255),   # Camgöbeği Karakter
+        "bg_color": (10, 10, 50),
+        "platform_color": (0, 0, 0),
+        "border_color": (50, 255, 50),
+        "player_color": (0, 255, 255),
         "grid_color": (20, 20, 80)
     },
     {
         "name": "CRIMSON FURY",
-        "bg_color": (40, 5, 5),          # Koyu Kırmızı Arkaplan
+        "bg_color": (40, 5, 5),
         "platform_color": (20, 0, 0),
-        "border_color": (255, 50, 0),    # Turuncu/Kırmızı Çizgiler
-        "player_color": (255, 200, 0),   # Sarı Karakter
+        "border_color": (255, 50, 0),
+        "player_color": (255, 200, 0),
         "grid_color": (80, 20, 20)
     },
     {
         "name": "MONOCHROME",
-        "bg_color": (10, 10, 10),        # Siyah Arkaplan
-        "platform_color": (255, 255, 255), # Beyaz Platform
-        "border_color": (100, 100, 100), # Gri Çizgiler
-        "player_color": (0, 0, 0),       # Siyah Karakter (Ters renk)
+        "bg_color": (10, 10, 10),
+        "platform_color": (255, 255, 255),
+        "border_color": (100, 100, 100),
+        "player_color": (0, 0, 0),
         "player_border": (255, 255, 255),
         "grid_color": (40, 40, 40)
     },
     {
         "name": "TOXIC WASTE",
-        "bg_color": (10, 30, 10),        # Koyu Yeşil Arkaplan
+        "bg_color": (10, 30, 10),
         "platform_color": (0, 20, 0),
-        "border_color": (180, 0, 255),   # Mor Çizgiler (Joker teması gibi)
-        "player_color": (50, 255, 50),   # Yeşil Karakter
+        "border_color": (180, 0, 255),
+        "player_color": (50, 255, 50),
         "grid_color": (20, 60, 20)
     }
 ]
 
-# Karakter şekilleri
 PLAYER_SHAPES = ['circle', 'square', 'triangle', 'hexagon']

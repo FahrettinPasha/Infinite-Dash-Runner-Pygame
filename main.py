@@ -1,4 +1,3 @@
-# (Tam dosya içeriği — sadece slam/dash cooldown kontrolleri düzeltildi ve küçük açıklama eklendi.)
 import pygame
 import sys
 import random
@@ -15,20 +14,18 @@ from animations import CharacterAnimator, TrailEffect
 pygame.init()
 pygame.mixer.pre_init(44100, -16, 2, 512)
 
-# Global Display Başlangıç
-current_w, current_h = SCREEN_WIDTH, SCREEN_HEIGHT
-screen = pygame.display.set_mode((current_w, current_h),
+# Global Ekran (Pencere)
+current_display_w, current_display_h = LOGICAL_WIDTH, LOGICAL_HEIGHT
+screen = pygame.display.set_mode((current_display_w, current_display_h),
                                 pygame.SCALED | pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.HWSURFACE, vsync=1)
-pygame.display.set_caption("Infinite Runner - METEOR DASH + PRO MENU")
+pygame.display.set_caption("Infinite Runner - METEOR DASH + RESOLUTION SCALER")
 clock = pygame.time.Clock()
 
-# --- KALICI YÜZEYLER (Yeniden boyutlandırılabilir olmalı) ---
-def create_surfaces(w, h):
-    v = pygame.Surface((w, h), pygame.SRCALPHA)
-    u = pygame.Surface((w, h), pygame.SRCALPHA)
-    return v, u
+# Sanal Canvas (Oyun Mantığı için 1920x1080 Sabit)
+game_canvas = pygame.Surface((LOGICAL_WIDTH, LOGICAL_HEIGHT))
 
-vfx_surface, ui_surface = create_surfaces(current_w, current_h)
+# VFX için yardımcı yüzey
+vfx_surface = pygame.Surface((LOGICAL_WIDTH, LOGICAL_HEIGHT), pygame.SRCALPHA)
 
 # --- 2. SES AYARLARI ---
 FX_VOLUME = 0.7
@@ -41,7 +38,6 @@ SLAM_SOUND = load_sound_asset("assets/sfx/slam.wav", lambda: generate_sound_effe
 EXPLOSION_SOUND = load_sound_asset("assets/sfx/explosion.wav", lambda: generate_sound_effect(50, 300, 0.5), FX_VOLUME * 1.2)
 GAME_MUSIC = load_sound_asset("assets/music/game_action_music.ogg", generate_ambient_fallback, 1.0)
 
-# --- OYUN İÇİ SABİTLER (EKSİK OLANLAR EKLENDİ) ---
 MAX_VFX_COUNT = 200
 MAX_DASH_VFX_PER_FRAME = 5
 METEOR_CORE = (255, 255, 200)
@@ -81,19 +77,16 @@ class WarpLine(pygame.sprite.Sprite):
 # --- 3. DURUM DEĞİŞKENLERİ ---
 GAME_STATE = 'MENU' 
 
-# Menu ve Performans Ayarları
-# Varsayılan değerler settings.py'deki indexlere göre
 game_settings = {
     'fullscreen': True,
     'quality': 'HIGH',
-    'res_index': 1, # Varsayılan: 1920x1080 (Listede 2. sırada)
+    'res_index': 1, # Varsayılan: 1920x1080
     'fps_limit': 60,
-    'fps_index': 1  # Varsayılan: 60 FPS
+    'fps_index': 1
 }
 current_fps = 60
 active_ui_elements = {}
 
-# Loading Screen
 loading_progress = 0.0
 loading_logs = []
 loading_timer = 0
@@ -115,7 +108,7 @@ CURRENT_SHAPE = 'circle'
 score = 0.0
 high_score = 0
 camera_speed = INITIAL_CAMERA_SPEED
-player_x, player_y = 150.0, float(current_h - 300)
+player_x, player_y = 150.0, float(LOGICAL_HEIGHT - 300)
 y_velocity = 0.0
 is_jumping = is_dashing = is_slamming = False
 slam_stall_timer = 0
@@ -127,7 +120,7 @@ dash_vx = dash_vy = 0.0
 screen_shake = 0
 dash_particles_timer = 0
 dash_angle = 0.0
-dash_frame_counter = 0.0  # artık float, frame-ölçek uygulanacak
+dash_frame_counter = 0.0
 character_state = 'idle'
 slam_collision_check_frames = 0
 active_damage_waves = [] 
@@ -135,7 +128,7 @@ active_damage_waves = []
 character_animator = CharacterAnimator()
 trail_effects = []
 last_trail_time = 0.0
-TRAIL_INTERVAL = 3  # önceki frame tabanlı değere göre çalışacak (frame sayısı)
+TRAIL_INTERVAL = 3
 
 all_platforms = pygame.sprite.Group()
 all_enemies = pygame.sprite.Group()
@@ -144,25 +137,21 @@ stars = [Star() for _ in range(120)]
 
 # --- YARDIMCI FONKSİYONLAR ---
 def apply_display_settings():
-    """Çözünürlük ve ekran modunu uygular"""
-    global screen, vfx_surface, ui_surface, current_w, current_h
+    """
+    Ekran modunu ve çözünürlüğü uygular.
+    """
+    global screen, current_display_w, current_display_h
     
-    res = AVAILABLE_RESOLUTIONS[game_settings['res_index']]
-    current_w, current_h = res
+    target_res = AVAILABLE_RESOLUTIONS[game_settings['res_index']]
     
-    flags = pygame.DOUBLEBUF | pygame.HWSURFACE
     if game_settings['fullscreen']:
-        flags |= pygame.FULLSCREEN | pygame.SCALED
+        current_display_w, current_display_h = LOGICAL_WIDTH, LOGICAL_HEIGHT
+        flags = pygame.SCALED | pygame.FULLSCREEN | pygame.DOUBLEBUF | pygame.HWSURFACE
+    else:
+        current_display_w, current_display_h = target_res
+        flags = pygame.DOUBLEBUF | pygame.HWSURFACE
     
-    # Ekranı yeniden oluştur
-    screen = pygame.display.set_mode((current_w, current_h), flags, vsync=1)
-    
-    # Yardımcı yüzeyleri de yeni boyuta göre güncelle
-    vfx_surface, ui_surface = create_surfaces(current_w, current_h)
-    
-    # Yıldızları yeni ekrana göre dağıt
-    global stars
-    stars = [Star() for _ in range(120)]
+    screen = pygame.display.set_mode((current_display_w, current_display_h), flags, vsync=1)
 
 def add_new_platform(start_x=None):
     if start_x is None:
@@ -171,7 +160,7 @@ def add_new_platform(start_x=None):
             gap = random.randint(GAP_MIN, GAP_MAX)
             start_x = rightmost.rect.right + gap
         else:
-            start_x = current_w
+            start_x = LOGICAL_WIDTH
     width = random.randint(PLATFORM_MIN_WIDTH, PLATFORM_MAX_WIDTH)
     y = random.choice(PLATFORM_HEIGHTS)
     
@@ -190,14 +179,10 @@ def start_loading_sequence():
     loading_timer = 0
     loading_stage = 0
     
-    # Kalite ayarı kontrolü
-    global MAX_VFX_COUNT, MAX_DASH_VFX_PER_FRAME
     if game_settings['quality'] == 'LOW':
+        global MAX_VFX_COUNT, MAX_DASH_VFX_PER_FRAME
         MAX_VFX_COUNT = 50
         MAX_DASH_VFX_PER_FRAME = 2
-    else:
-        MAX_VFX_COUNT = 200
-        MAX_DASH_VFX_PER_FRAME = 5
 
 def init_game():
     global player_x, player_y, y_velocity, score, camera_speed, jumps_left
@@ -208,7 +193,7 @@ def init_game():
     if GAME_MUSIC:
         AMBIENT_CHANNEL.play(GAME_MUSIC, loops=-1)
     camera_speed = INITIAL_CAMERA_SPEED
-    player_x, player_y = 150.0, float(current_h - 300)
+    player_x, player_y = 150.0, float(LOGICAL_HEIGHT - 300)
     y_velocity = score = dash_timer = dash_cooldown_timer = screen_shake = slam_stall_timer = slam_cooldown = 0
     is_jumping = is_dashing = is_slamming = False
     jumps_left = MAX_JUMPS
@@ -229,10 +214,10 @@ def init_game():
     all_enemies.empty()
     all_vfx.empty()
     
-    start_plat = Platform(0, current_h - 50, 400, 50)
+    start_plat = Platform(0, LOGICAL_HEIGHT - 50, 400, 50)
     all_platforms.add(start_plat)
     current_right = 400
-    while current_right < current_w + 200:
+    while current_right < LOGICAL_WIDTH + 200:
         add_new_platform()
         current_right = max(p.rect.right for p in all_platforms)
 
@@ -247,31 +232,31 @@ while running:
     last_time = current_time
     time_ms = current_time
     frame_count += 1
-
-    # --- ÖNEMLİ: frame_mul ile orijinal frame-tabancı değerleri koruyoruz ---
-    # Kodunuz eski halde "her framede X kadar değişim" varsayıyordu.
-    # Eğer dt bazlı entegrasyon yaptıysak ama ayarları (JUMP_POWER, GRAVITY vb.) frame-tabancıysa
-    # oyuncunun havada asılı kalma gibi sorunları çıkar. Bunu düzeltmek için dt'yi 60 FPS bazlı
-    # bir çarpana dönüştürüyoruz: frame_mul = dt * 60
-    # Böylece eski frame-bağımlı değerler yeni dt entegrasyonuyla uyumlu kalır.
     frame_mul = max(0.001, dt) * 60.0
 
-    mouse_pos = pygame.mouse.get_pos()
+    # --- MOUSE DÜZELTMESİ (ÖNEMLİ) ---
+    # Gerçek pencere koordinatlarını al
+    raw_mouse_pos = pygame.mouse.get_pos()
+    
+    # Pencerenin şu anki boyutu ile oyunun mantıksal boyutu arasındaki oranı bul
+    # Örnek: Pencere 640 ise, 1920/640 = 3 kat büyütmemiz lazım mouse koordinatını.
+    scale_x = LOGICAL_WIDTH / screen.get_width()
+    scale_y = LOGICAL_HEIGHT / screen.get_height()
+    
+    # Mouse'u oyunun mantıksal koordinatlarına çevir
+    mouse_pos = (raw_mouse_pos[0] * scale_x, raw_mouse_pos[1] * scale_y)
 
-    # VFX Temizliği
     if frame_count % 30 == 0:
         if len(all_vfx) > MAX_VFX_COUNT:
              sprites = list(all_vfx.sprites())
              for sprite in sprites[:20]:
                  sprite.kill()
 
-    # --- EVENT HANDLING ---
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
             
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            # UI Tıklama Kontrolleri
             if GAME_STATE == 'MENU':
                 if 'start' in active_ui_elements and active_ui_elements['start'].collidepoint(mouse_pos):
                     start_loading_sequence()
@@ -281,29 +266,18 @@ while running:
                     running = False
             
             elif GAME_STATE == 'SETTINGS':
-                # 1. Fullscreen Toggle (Sadece değişkeni değiştirir, Apply ile uygulanır)
                 if 'toggle_fullscreen' in active_ui_elements and active_ui_elements['toggle_fullscreen'].collidepoint(mouse_pos):
                     game_settings['fullscreen'] = not game_settings['fullscreen']
-                
-                # 2. Kalite Toggle (Anında etki eder)
                 elif 'toggle_quality' in active_ui_elements and active_ui_elements['toggle_quality'].collidepoint(mouse_pos):
                     game_settings['quality'] = 'LOW' if game_settings['quality'] == 'HIGH' else 'HIGH'
-                
-                # 3. Çözünürlük Değiştirme (Döngüsel)
                 elif 'change_resolution' in active_ui_elements and active_ui_elements['change_resolution'].collidepoint(mouse_pos):
                     game_settings['res_index'] = (game_settings['res_index'] + 1) % len(AVAILABLE_RESOLUTIONS)
-                
-                # 4. FPS Değiştirme (Anında etki eder)
                 elif 'change_fps' in active_ui_elements and active_ui_elements['change_fps'].collidepoint(mouse_pos):
                     game_settings['fps_index'] = (game_settings['fps_index'] + 1) % len(FPS_LIMITS)
                     game_settings['fps_limit'] = FPS_LIMITS[game_settings['fps_index']]
                     current_fps = game_settings['fps_limit']
-                
-                # 5. Ayarları Uygula Butonu
                 elif 'apply_changes' in active_ui_elements and active_ui_elements['apply_changes'].collidepoint(mouse_pos):
                     apply_display_settings()
-                
-                # 6. Geri Dön
                 elif 'back' in active_ui_elements and active_ui_elements['back'].collidepoint(mouse_pos):
                     GAME_STATE = 'MENU'
 
@@ -326,10 +300,8 @@ while running:
             if GAME_STATE == 'GAME_OVER' and event.key == pygame.K_r:
                 init_game(); GAME_STATE = 'PLAYING'
 
-            # OYUN KONTROLLERİ
             if GAME_STATE == 'PLAYING':
                 px, py = int(player_x + 15), int(player_y + 15)
-                # NOTE: cooldown kontrollerinde eşitlik yerine <= kullanıldı.
                 if event.key == pygame.K_w and jumps_left > 0 and not is_dashing:
                     jumps_left -= 1
                     is_jumping = True; is_slamming = False; y_velocity = -JUMP_POWER
@@ -341,7 +313,6 @@ while running:
                                                 py + random.randint(-10, 10),
                                                 CURRENT_THEME["border_color"], 4, 15))
 
-                # slam_cooldown artık float olabileceği için eşitlik yerine <= 0 ile kontrol ediyoruz
                 if event.key == pygame.K_s and is_jumping and not is_dashing and not is_slamming and slam_cooldown <= 0:
                     is_slamming = True
                     slam_stall_timer = 15
@@ -359,7 +330,6 @@ while running:
                                                     py + random.randint(-60, 60),
                                                     PLAYER_SLAM, 12))
 
-                # dash cooldown kontrolü de <= 0 olmalı (float ile uyumlu)
                 if event.key == pygame.K_SPACE and dash_cooldown_timer <= 0 and not is_dashing:
                     is_dashing = True
                     dash_timer = DASH_DURATION
@@ -380,15 +350,13 @@ while running:
                     is_jumping = True; y_velocity = 0
                     dash_angle = math.atan2(dash_vy, dash_vx)
 
-    # --- OYUN LOJİĞİ & GÜNCELLEMELER ---
+    # --- OYUN LOJİĞİ ---
     if GAME_STATE == 'LOADING':
-        # Yükleme Simülasyonu
         loading_timer += 1
         if loading_timer % random.randint(20, 45) == 0 and loading_stage < len(fake_log_messages):
             loading_logs.append(fake_log_messages[loading_stage])
             loading_stage += 1
             loading_progress = min(0.95, loading_stage / len(fake_log_messages))
-            
         if loading_stage >= len(fake_log_messages):
             loading_progress += 0.01 
             if loading_progress >= 1.0:
@@ -396,13 +364,10 @@ while running:
                 GAME_STATE = 'PLAYING'
 
     elif GAME_STATE == 'PLAYING':
-        # Kamera hız artışı frame-temelli his korunacak şekilde frame_mul ile uygulanıyor
         camera_speed = min(MAX_CAMERA_SPEED, camera_speed + SPEED_INCREMENT_RATE * frame_mul)
-        # Skoru frame-tabancı orijinal hisle uyumlu tutmak için frame_mul ile arttırıyoruz
         score += 0.1 * camera_speed * frame_mul
 
         old_x, old_y = player_x, player_y
-
         keys = pygame.key.get_pressed()
         horizontal_move = keys[pygame.K_d] - keys[pygame.K_a]
         if horizontal_move != 0 and not is_dashing and not is_slamming:
@@ -413,7 +378,6 @@ while running:
         is_grounded = not is_jumping and not is_slamming and not is_dashing
         character_animator.update(dt, character_state, is_grounded, y_velocity, is_dashing, is_slamming)
 
-        # last_trail_time artık frame-ölçekli
         last_trail_time += frame_mul
         if last_trail_time >= TRAIL_INTERVAL and (is_dashing or is_slamming):
             last_trail_time = 0.0
@@ -424,10 +388,8 @@ while running:
             elif is_slamming:
                 trail_color = PLAYER_SLAM
                 trail_size = random.randint(8, 12)
-            
             trail_effects.append(TrailEffect(player_x + 15, player_y + 15, trail_color, trail_size, life=12))
 
-        # Hasar Dalgaları (frame_mul ile genişletildi)
         for wave in active_damage_waves[:]:
             wave['r'] += wave['speed'] * frame_mul
             wave['x'] -= camera_speed * frame_mul
@@ -441,12 +403,10 @@ while running:
             if wave['r'] > wave['max_r']:
                 active_damage_waves.remove(wave)
 
-        # --- DASH MANTIĞI (KORUNAN BÖLÜM) ---
         if is_dashing:
             px, py = int(player_x + 15), int(player_y + 15)
             dash_frame_counter += frame_mul
-            
-            for _ in range(4): # 4 adet meteor parçacığı
+            for _ in range(4):
                 inv_angle = dash_angle + math.pi + random.uniform(-0.5, 0.5)
                 spark_speed = random.uniform(5, 15)
                 color = random.choice([(255, 50, 0), (255, 150, 0), (255, 255, 100)])
@@ -455,10 +415,8 @@ while running:
             if int(dash_frame_counter) % 5 == 0:
                 all_vfx.add(Shockwave(px, py, (255, 200, 100), max_radius=70, width=2, speed=10))
 
-            # AoE Hasarı
             meteor_hit_radius = 120
             enemy_hits_aoe = [e for e in all_enemies if math.sqrt((e.rect.centerx - px)**2 + (e.rect.centery - py)**2) < meteor_hit_radius]
-            
             for enemy in enemy_hits_aoe:
                 enemy.kill()
                 score += 500
@@ -475,21 +433,15 @@ while running:
                 offset_y = random.randint(-5, 5)
                 all_vfx.add(WarpLine(px + offset_x, py + offset_y, dash_angle + random.uniform(-0.15, 0.15), METEOR_CORE, METEOR_FIRE))
 
-            # Dash hareketi frame-ölçekli çarpan ile uygulanıyor (eski frame-temelli his korunuyor)
             player_x += dash_vx * frame_mul
             player_y += dash_vy * frame_mul
-
-            # kamera hızı da frame-ölçekli uygulanır
             player_x -= camera_speed * frame_mul
-
-            # dash_timer frame-tabancıysa onu da frame_mul ile azalt
             dash_timer -= frame_mul
             if dash_timer <= 0:
                 is_dashing = False
                 y_velocity = 0
                 character_state = 'idle'
 
-        # --- SLAM MANTIĞI (KORUNAN BÖLÜM) ---
         elif is_slamming and slam_stall_timer > 0:
             slam_stall_timer -= frame_mul
             slam_collision_check_frames += 1
@@ -503,37 +455,30 @@ while running:
 
             vibration = random.randint(-1, 1) if slam_stall_timer > 7 else 0
             player_x += vibration
-            # slam_stall_timer float olduğu için eşitlikten kaçınıyoruz
             if slam_stall_timer <= 0:
                 y_velocity = 30
                 screen_shake = 12
                 all_vfx.add(ParticleExplosion(player_x+15, player_y+15, PLAYER_SLAM, 12))
 
         else:
-            # Kamera hızını frame-ölçekli uygula (eski davranışı korumak için)
             player_x -= camera_speed * frame_mul
             if keys[pygame.K_a]: player_x -= PLAYER_SPEED * frame_mul
             if keys[pygame.K_d]: player_x += PLAYER_SPEED * frame_mul
-
-            # Y ekseni hareketi ve yerçekimi frame-ölçekli (eski frame-temelli his korunur)
             player_y += y_velocity * frame_mul
             if is_slamming:
                 y_velocity += SLAM_GRAVITY * 1.8 * frame_mul
             else:
                 y_velocity += GRAVITY * frame_mul
 
-        # frame-temelli geri sayımlar frame_mul ile azaltılıyor
         if dash_cooldown_timer > 0: dash_cooldown_timer -= frame_mul
         if slam_cooldown > 0: slam_cooldown -= frame_mul
-        if screen_shake > 0: screen_shake -= 1  # ekran titreşimi görsel; integer bırakıldı
+        if screen_shake > 0: screen_shake -= 1
 
         PLAYER_W, PLAYER_H = 30, 30
         player_rect = pygame.Rect(int(player_x), int(player_y), PLAYER_W, PLAYER_H)
         
-        # Çarpışmalar
         dummy_player = type('',(object,),{'rect':player_rect})()
         enemy_hits = pygame.sprite.spritecollide(dummy_player, all_enemies, False)
-        
         for enemy in enemy_hits:
             if is_dashing or is_slamming:
                 enemy.kill()
@@ -577,7 +522,6 @@ while running:
                     all_vfx.add(ParticleExplosion(player_x+15, player_y+30, CURRENT_THEME["player_color"], 8))
                 break
 
-        # Güncellemeleri frame-ölçekli hale getiriyoruz:
         all_platforms.update(camera_speed * frame_mul)
         all_enemies.update(camera_speed * frame_mul)
         for s in stars: s.update(camera_speed * frame_mul)
@@ -587,29 +531,21 @@ while running:
             except: trail.update(camera_speed * frame_mul)
             if trail.life <= 0: trail_effects.remove(trail)
 
-        if len(all_platforms) > 0 and max(p.rect.right for p in all_platforms) < current_w + 100:
+        if len(all_platforms) > 0 and max(p.rect.right for p in all_platforms) < LOGICAL_WIDTH + 100:
             add_new_platform()
-        if player_x < -50 or player_y > current_h + 100:
+        if player_x < -50 or player_y > LOGICAL_HEIGHT + 100:
             GAME_STATE = 'GAME_OVER'
             high_score = max(high_score, int(score))
             AMBIENT_CHANNEL.stop()
 
     # --- ÇİZİM ---
+    # 1. Adım: Tüm oyun öğelerini VE UI'ı "game_canvas"a çiz
+    
     if GAME_STATE in ['MENU', 'SETTINGS', 'LOADING']:
-        screen.fill(DARK_BLUE)
+        game_canvas.fill(DARK_BLUE)
         for s in stars:
-            s.draw(screen)
+            s.draw(game_canvas)
             s.update(0.5)
-        
-        ui_data = {
-            'settings': game_settings, 
-            'progress': loading_progress,
-            'logs': loading_logs,
-            'time_ms': time_ms
-        }
-        active_ui_elements = render_ui(ui_surface, GAME_STATE, ui_data, mouse_pos)
-        screen.blit(ui_surface, (0,0))
-        
     else:
         # Oyun İçi Çizim
         anim_params = character_animator.get_draw_params()
@@ -617,12 +553,12 @@ while running:
         global_offset = (random.randint(-screen_shake, screen_shake), random.randint(-screen_shake, screen_shake)) if screen_shake > 0 else (0,0)
         render_offset = (global_offset[0] + int(anim_offset[0]), global_offset[1] + int(anim_offset[1]))
 
-        screen.fill(CURRENT_THEME["bg_color"])
-        for s in stars: s.draw(screen)
+        game_canvas.fill(CURRENT_THEME["bg_color"])
+        for s in stars: s.draw(game_canvas)
         vfx_surface.fill((0, 0, 0, 0))
         
-        for p in all_platforms: p.draw(screen, CURRENT_THEME)
-        for e in all_enemies: e.draw(screen)
+        for p in all_platforms: p.draw(game_canvas, CURRENT_THEME)
+        for e in all_enemies: e.draw(game_canvas)
         for v in all_vfx: v.draw(vfx_surface)
         for trail in trail_effects: trail.draw(vfx_surface)
 
@@ -633,23 +569,48 @@ while running:
             modified_color = character_animator.get_modified_color(p_color)
             
             draw_animated_player(
-                screen, CURRENT_SHAPE,
+                game_canvas, CURRENT_SHAPE,
                 int(player_x + 15) + render_offset[0], int(player_y + 15) + render_offset[1], 15,
                 modified_color, anim_params
             )
+            
+        game_canvas.blit(vfx_surface, render_offset)
 
-        screen.blit(vfx_surface, render_offset)
-        
-        ui_surface.fill((0, 0, 0, 0))
-        ui_data = {
-            'theme': CURRENT_THEME, 'score': score, 'high_score': high_score,
-            'dash_cd': dash_cooldown_timer, 'slam_cd': slam_cooldown, 'time_ms': time_ms
-        }
-        render_ui(ui_surface, GAME_STATE, ui_data)
-        screen.blit(ui_surface, (0,0))
+    # UI ÇİZİMİ (Burada dönüştürülmüş mouse_pos kullanılıyor)
+    ui_data = {
+        'theme': CURRENT_THEME if 'CURRENT_THEME' in locals() else None, 
+        'score': score, 
+        'high_score': high_score,
+        'dash_cd': dash_cooldown_timer, 
+        'slam_cd': slam_cooldown, 
+        'time_ms': time_ms,
+        'settings': game_settings, # Menü için
+        'progress': loading_progress, # Loading için
+        'logs': loading_logs # Loading için
+    }
+    
+    # Doğrudan game_canvas üzerine çiziyoruz ve düzeltilmiş mouse_pos gönderiyoruz
+    active_ui_elements = render_ui(game_canvas, GAME_STATE, ui_data, mouse_pos)
+
+    # 2. Adım: "Quality" ayarına ve "Fullscreen" durumuna göre işlem
+    target_res = AVAILABLE_RESOLUTIONS[game_settings['res_index']]
+    
+    if game_settings['fullscreen']:
+        # FULLSCREEN: Görüntü kalitesini düşürerek tüm ekrana yay (Retro/Piksel etkisi)
+        if target_res != (LOGICAL_WIDTH, LOGICAL_HEIGHT):
+            scaled_small = pygame.transform.scale(game_canvas, target_res)
+            final_game_image = pygame.transform.scale(scaled_small, screen.get_size())
+        else:
+            final_game_image = pygame.transform.scale(game_canvas, screen.get_size())
+    else:
+        # WINDOWED: Pencere boyutuna göre ölçekle ama kaliteyi koru
+        final_game_image = pygame.transform.scale(game_canvas, screen.get_size())
+
+    # 3. Adım: Son oyunu ekrana bas
+    screen.blit(final_game_image, (0, 0))
 
     pygame.display.flip()
-    clock.tick(current_fps) # Dinamik FPS kullanımı felan
+    clock.tick(current_fps)
 
 pygame.quit()
 sys.exit()
